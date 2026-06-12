@@ -41,7 +41,17 @@ function StepBar({ substepActual, maxSubstep, onGoSubstepNav }) {
   );
 }
 
-function ActividadOpciones({ act, areaIdx, actIdx, onSelectTagOp, onToggleMulti }) {
+function ActividadOpciones({ act, areaIdx, actIdx, onSelectTagOp, onToggleMulti, onTextChange }) {
+  if (act.tipo === 'texto') {
+    return (
+      <textarea
+        className="w-full min-h-16 p-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-800 resize-y outline-none focus:border-gray-400 font-sans mt-1"
+        placeholder="Escribe aquí…"
+        value={act.selectedOptions?.[0] || ''}
+        onChange={e => onTextChange(areaIdx, actIdx, e.target.value)}
+      />
+    );
+  }
   const multi = act.tipo === 'checkbox';
   return (
     <div className="tag-group">
@@ -64,7 +74,7 @@ function ActividadOpciones({ act, areaIdx, actIdx, onSelectTagOp, onToggleMulti 
   );
 }
 
-function AreasForm({ areasActivas, onToggleArea, onQuitarActividad, onAbrirModalActividades, onSelectTagOp, onToggleMulti, tpuAlert }) {
+function AreasForm({ areasActivas, onToggleArea, onQuitarActividad, onAbrirModalActividades, onSelectTagOp, onToggleMulti, onTextChange, tpuAlert }) {
   return (
     <div>
       {areasActivas.map((area, ai) => {
@@ -97,6 +107,8 @@ function AreasForm({ areasActivas, onToggleArea, onQuitarActividad, onAbrirModal
                           ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-700 normal-case tracking-normal">opción múltiple</span>
                           : act.tipo === 'radio'
                           ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 normal-case tracking-normal">opción única</span>
+                          : act.tipo === 'texto'
+                          ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 normal-case tracking-normal">texto libre</span>
                           : null
                         }
                       </div>
@@ -106,6 +118,7 @@ function AreasForm({ areasActivas, onToggleArea, onQuitarActividad, onAbrirModal
                         actIdx={li}
                         onSelectTagOp={onSelectTagOp}
                         onToggleMulti={onToggleMulti}
+                        onTextChange={onTextChange}
                       />
                       {act.nota && (
                         <div className="flex items-start gap-2 mt-2.5 p-2.5 rounded-lg bg-blue-50 border border-blue-200">
@@ -244,11 +257,15 @@ function ResumenView({ disciplina, categoria, tipoSolicitud, observaciones, tipo
               return (
                 <div key={ai} className="mb-1.5 text-xs">
                   <span className="text-gray-400">{act.nombre}: </span>
-                  <span className="flex flex-wrap gap-1 mt-1 inline-flex">
-                    {opts.map(op => (
-                      <span key={op} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">{op}</span>
-                    ))}
-                  </span>
+                  {act.tipo === 'texto' ? (
+                    <span className="text-gray-700 italic">{opts[0]}</span>
+                  ) : (
+                    <span className="flex flex-wrap gap-1 mt-1 inline-flex">
+                      {opts.map(op => (
+                        <span key={op} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 border border-gray-200">{op}</span>
+                      ))}
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -410,6 +427,17 @@ export default function NuevaOrdenScreen({
           const newOpts = opts.includes(option) ? opts.filter(o => o !== option) : [...opts, option];
           return { ...act, selectedOptions: newOpts };
         })
+      }
+    ));
+  }
+
+  function onTextChange(areaIdx, actIdx, value) {
+    setAreasActivas(prev => prev.map((a, i) =>
+      i !== areaIdx ? a : {
+        ...a,
+        actividades: a.actividades.map((act, li) =>
+          li !== actIdx ? act : { ...act, selectedOptions: value ? [value] : [] }
+        )
       }
     ));
   }
@@ -714,6 +742,7 @@ export default function NuevaOrdenScreen({
               onAbrirModalActividades={onAbrirModalActividades}
               onSelectTagOp={onSelectTagOp}
               onToggleMulti={onToggleMulti}
+              onTextChange={onTextChange}
               tpuAlert={tpuAlert}
             />
           )}

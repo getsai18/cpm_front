@@ -4,13 +4,13 @@ import App from './App'
 import { Login } from './auth/Login'
 import { AdminApp } from './admin/AdminApp'
 import CPManagerEmployee from './employee/Empleado'
+import { getDoc, setDoc } from './storage'
+import { db } from './db'
 
-// Transforms Gestor's cpmanager_clientes → cp_v5_pedidos format for the Empleado.
-// Preserves completada states already marked by the Empleado.
-function syncGestorToEmpleado() {
+async function syncGestorToEmpleado() {
   try {
-    const clientes = JSON.parse(localStorage.getItem('cpmanager_clientes') || '[]')
-    const existing = JSON.parse(localStorage.getItem('cp_v5_pedidos') || '[]')
+    const clientes = await getDoc('cpmanager_clientes', [])
+    const existing = await getDoc('cp_v5_pedidos', [])
 
     const completedMap = {}
     existing.forEach(p => {
@@ -58,15 +58,17 @@ function syncGestorToEmpleado() {
       })
     })
 
-    if (nuevos.length > 0) localStorage.setItem('cp_v5_pedidos', JSON.stringify(nuevos))
+    // Only write if content actually changed — prevents ping-pong with syncEmpleadoToGestor
+    if (nuevos.length > 0 && JSON.stringify(nuevos) !== JSON.stringify(existing)) {
+      await setDoc('cp_v5_pedidos', nuevos)
+    }
   } catch (e) { console.warn('syncGestorToEmpleado', e) }
 }
 
-// Reads completed actividades from cp_v5_pedidos and pushes status back to cpmanager_clientes.
-function syncEmpleadoToGestor() {
+async function syncEmpleadoToGestor() {
   try {
-    const pedidos = JSON.parse(localStorage.getItem('cp_v5_pedidos') || '[]')
-    const clientes = JSON.parse(localStorage.getItem('cpmanager_clientes') || '[]')
+    const pedidos = await getDoc('cp_v5_pedidos', [])
+    const clientes = await getDoc('cpmanager_clientes', [])
 
     const progressMap = {}
     pedidos.forEach(p => {
@@ -93,7 +95,7 @@ function syncEmpleadoToGestor() {
       })),
     }))
 
-    if (changed) localStorage.setItem('cpmanager_clientes', JSON.stringify(updated))
+    if (changed) await setDoc('cpmanager_clientes', updated)
   } catch (e) { console.warn('syncEmpleadoToGestor', e) }
 }
 
@@ -178,30 +180,40 @@ export default function RootApp() {
   const [role, setRole] = useState(null)
   const [areas, setAreas] = useState(initialAreas)
   const [usuarios, setUsuarios] = useState(initialUsuarios)
+  const syncingRef = useRef(false)
 
   useEffect(() => {
-    const existing = JSON.parse(localStorage.getItem('cp_areas') || '[]')
-    const mapped = areas.map(a => {
-      const prev = existing.find(e => e.nombre === a.nombre)
-      return {
-        id: 'a' + a.id,
-        nombre: a.nombre,
-        color: AREA_COLORS[a.nombre] || '#6b7280',
-        actividades: prev?.actividades || [],
-      }
-    })
-    localStorage.setItem('cp_areas', JSON.stringify(mapped))
+    async function syncAreas() {
+      const existing = await getDoc('cp_areas', [])
+      const mapped = areas.map(a => {
+        const prev = existing.find(e => e.nombre === a.nombre)
+        return {
+          id: 'a' + a.id,
+          nombre: a.nombre,
+          color: AREA_COLORS[a.nombre] || '#6b7280',
+          actividades: prev?.actividades || [],
+        }
+      })
+      await setDoc('cp_areas', mapped)
+    }
+    syncAreas().catch(console.warn)
   }, [areas])
 
-  // Cross-tab storage sync
   useEffect(() => {
-    function onStorage(e) {
-      if (e.key === 'cpmanager_clientes') syncGestorToEmpleado()
-      if (e.key === 'cp_v5_pedidos') syncEmpleadoToGestor()
-    }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
+    if (!role) return // No sincronizar en pantalla de login ni durante migración
+    const feed = db.changes({ live: true, since: 'now', include_docs: false })
+      .on('change', async (change) => {
+        if (syncingRef.current) return
+        syncingRef.current = true
+        try {
+          if (change.id === 'cpmanager_clientes') await syncGestorToEmpleado()
+          else if (change.id === 'cp_v5_pedidos') await syncEmpleadoToGestor()
+        } finally {
+          syncingRef.current = false
+        }
+      })
+    return () => feed.cancel()
+  }, [role])
 
   function handleSetUsuarios(updater) {
     setUsuarios(prev => {
@@ -211,15 +223,13 @@ export default function RootApp() {
     })
   }
 
-  function handleLogin(newRole) {
-    // Before entering empleado: push latest Gestor data down
-    syncGestorToEmpleado()
+  async function handleLogin(newRole) {
+    await syncGestorToEmpleado()
     setRole(newRole)
   }
 
-  function handleLogout() {
-    // Before leaving empleado: push completions back up to Gestor
-    if (role === 'empleado') syncEmpleadoToGestor()
+  async function handleLogout() {
+    if (role === 'empleado') await syncEmpleadoToGestor()
     setRole(null)
   }
 

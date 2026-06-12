@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Pencil, Trash2, Search, Users, UserCircle, X, ClipboardList, Package } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { Pagination } from './Pagination'
+import { getDoc, setDoc } from '../../storage'
 
 const estadoOrdenConfig = {
   completado: { label: 'Completado', color: 'bg-green-100 text-green-700' },
@@ -19,9 +20,9 @@ function mapPedidoStatus(status) {
   return 'pendiente'
 }
 
-function buildHistorialFromGestor(clienteId) {
+async function buildHistorialFromGestor(clienteId) {
   try {
-    const gestorData = JSON.parse(localStorage.getItem('cpmanager_clientes') || '[]')
+    const gestorData = await getDoc('cpmanager_clientes', [])
     const found = gestorData.find(c => String(c.id) === String(clienteId))
     if (!found) return []
     return (found.pedidos || []).map(p => {
@@ -54,39 +55,46 @@ const initialClientes = [
 const PAGE_SIZE = 5
 
 export function Clientes() {
-  const [clientes, setClientes] = useState(() => {
-    const saved = localStorage.getItem('cp_admin_clientes')
-    return saved ? JSON.parse(saved) : initialClientes
-  })
+  const [clientes, setClientes] = useState(initialClientes)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    localStorage.setItem('cp_admin_clientes', JSON.stringify(clientes))
+    getDoc('cp_admin_clientes', null)
+      .then(saved => { if (saved) setClientes(saved) })
+      .catch(console.warn)
+      .finally(() => setLoading(false))
+  }, [])
 
-    // sync to cp_clientes (legacy)
-    const existing = JSON.parse(localStorage.getItem('cp_clientes') || '[]')
-    const mapped = clientes.map(c => {
-      const prev = existing.find(e => String(e.id) === String(c.id))
-      return { id: String(c.id), nombre: c.nombre, telefono: prev?.telefono || c.informacion || '', ultimoPedido: prev?.ultimoPedido || 'Sin pedidos', totalPedidos: prev?.totalPedidos ?? 0 }
-    })
-    localStorage.setItem('cp_clientes', JSON.stringify(mapped))
+  useEffect(() => {
+    if (loading) return
+    async function save() {
+      await setDoc('cp_admin_clientes', clientes)
 
-    // sync to cpmanager_clientes (Gestor master), preserving existing pedidos
-    const existingGestor = JSON.parse(localStorage.getItem('cpmanager_clientes') || '[]')
-    const adminIds = new Set(clientes.map(c => String(c.id)))
-    const gestorOnly = existingGestor.filter(c => !adminIds.has(String(c.id)))
-    const gestorMapped = clientes.map(c => {
-      const prev = existingGestor.find(e => String(e.id) === String(c.id))
-      return {
-        id: String(c.id),
-        nombre: c.nombre,
-        telefono: prev?.telefono || c.informacion || '',
-        ultimoPedido: prev?.ultimoPedido || 'Sin pedidos',
-        totalPedidos: prev?.totalPedidos ?? 0,
-        pedidos: prev?.pedidos || [],
-      }
-    })
-    localStorage.setItem('cpmanager_clientes', JSON.stringify([...gestorMapped, ...gestorOnly]))
-  }, [clientes])
+      const existing = await getDoc('cp_clientes', [])
+      const mapped = clientes.map(c => {
+        const prev = existing.find(e => String(e.id) === String(c.id))
+        return { id: String(c.id), nombre: c.nombre, telefono: prev?.telefono || c.informacion || '', ultimoPedido: prev?.ultimoPedido || 'Sin pedidos', totalPedidos: prev?.totalPedidos ?? 0 }
+      })
+      await setDoc('cp_clientes', mapped)
+
+      const existingGestor = await getDoc('cpmanager_clientes', [])
+      const adminIds = new Set(clientes.map(c => String(c.id)))
+      const gestorOnly = existingGestor.filter(c => !adminIds.has(String(c.id)))
+      const gestorMapped = clientes.map(c => {
+        const prev = existingGestor.find(e => String(e.id) === String(c.id))
+        return {
+          id: String(c.id),
+          nombre: c.nombre,
+          telefono: prev?.telefono || c.informacion || '',
+          ultimoPedido: prev?.ultimoPedido || 'Sin pedidos',
+          totalPedidos: prev?.totalPedidos ?? 0,
+          pedidos: prev?.pedidos || [],
+        }
+      })
+      await setDoc('cpmanager_clientes', [...gestorMapped, ...gestorOnly])
+    }
+    save().catch(console.warn)
+  }, [clientes, loading])
 
   const [search, setSearch] = useState('')
   const [filterTipo, setFilterTipo] = useState('todos')
@@ -122,10 +130,11 @@ export function Clientes() {
     return () => document.removeEventListener('keydown', onKey)
   }, [modalOpen, deleteModal, historialCliente])
 
-  const historialOrdenes = useMemo(
-    () => historialCliente ? buildHistorialFromGestor(historialCliente.id) : [],
-    [historialCliente]
-  )
+  const [historialOrdenes, setHistorialOrdenes] = useState([])
+  useEffect(() => {
+    if (!historialCliente) { setHistorialOrdenes([]); return }
+    buildHistorialFromGestor(historialCliente.id).then(setHistorialOrdenes)
+  }, [historialCliente])
   const HIST_PAGE_SIZE = 5
   const historialTotalPages = Math.max(1, Math.ceil(historialOrdenes.length / HIST_PAGE_SIZE))
   const historialPaginated = historialOrdenes.slice((historialPage - 1) * HIST_PAGE_SIZE, historialPage * HIST_PAGE_SIZE)

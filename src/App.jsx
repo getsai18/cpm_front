@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Topbar from './components/Topbar';
 import ClientesScreen from './components/ClientesScreen';
 import PedidosScreen from './components/PedidosScreen';
@@ -11,25 +11,36 @@ import ActividadesModal from './components/modals/ActividadesModal';
 import KitModal from './components/modals/KitModal';
 import KitOrdenesModal from './components/modals/KitOrdenesModal';
 import {
-  getMockClientesInitial, guardarLS, cargarLS,
+  getMockClientesInitial, guardarDB, cargarDB,
   areasConfig, getCatalogoActividad,
   LS_KEY, LS_KEY_OIDS,
 } from './data/catalogos';
+import { deleteDoc } from './storage';
 import { pedidoVencido, tipoSolicitudLimpio, generarCodigo } from './utils/helpers';
-
-function initClientes() {
-  const stored = cargarLS();
-  return stored ? stored.clientes : getMockClientesInitial();
-}
-function initCounters() {
-  const stored = cargarLS();
-  return stored?.counters || { ordenIdCounter: 10, pedidoIdCounter: 60 };
-}
 
 export default function App() {
   // ─── Data ───────────────────────────────────────────────
-  const [clientes, setClientes] = useState(() => initClientes());
-  const countersRef = useRef(initCounters());
+  const [clientes, setClientes] = useState([]);
+  const [dbLoading, setDbLoading] = useState(true);
+  const countersRef = useRef({ ordenIdCounter: 10, pedidoIdCounter: 60 });
+
+  useEffect(() => {
+    cargarDB().then(stored => {
+      if (stored) {
+        setClientes(stored.clientes);
+        countersRef.current = stored.counters;
+      } else {
+        setClientes(getMockClientesInitial());
+      }
+      setDbLoading(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!dbLoading) {
+      guardarDB(clientes, countersRef.current).catch(console.warn);
+    }
+  }, [clientes, dbLoading]);
 
   // ─── Navigation ─────────────────────────────────────────
   const [screen, setScreen] = useState('clientes');
@@ -64,13 +75,6 @@ export default function App() {
   const [kitModalVisible, setKitModalVisible] = useState(false);
 
   // ─── Helpers ────────────────────────────────────────────
-  function gs() {
-    return guardarLS(clientes, countersRef.current);
-  }
-  function guardar(newClientes) {
-    guardarLS(newClientes, countersRef.current);
-  }
-
   function showConfirm({ title, body, confirmLabel, confirmCls, icon, iconCls, onConfirm, hideCancelBtn }) {
     setConfirmModal({ title, body, confirmLabel, confirmCls, icon, iconCls, onConfirm, hideCancelBtn });
   }
@@ -88,11 +92,7 @@ export default function App() {
   }
 
   function updateCliente(clienteId, updater) {
-    setClientes(prev => {
-      const next = prev.map(c => c.id === clienteId ? updater(c) : c);
-      guardarLS(next, countersRef.current);
-      return next;
-    });
+    setClientes(prev => prev.map(c => c.id === clienteId ? updater(c) : c));
   }
   function updatePedido(clienteId, pedidoId, updater) {
     updateCliente(clienteId, c => ({
@@ -147,7 +147,6 @@ export default function App() {
           ultimoPedido: fStr,
         };
       });
-      guardarLS(next, countersRef.current);
       return next;
     });
     setClienteActivoId(cid);
@@ -225,12 +224,10 @@ export default function App() {
     event.target.value = '';
   }
   function quitarAdjunto(idx, scope) {
-    if (scope === 'pedido') {
+    if (scope === 'pedido' || scope === 'pedido-readonly') {
       updatePedido(clienteActivoId, pedidoActivoId, p => ({
         ...p, adjuntos: p.adjuntos.filter((_, i) => i !== idx),
       }));
-    } else if (scope === 'orden') {
-      setAdjuntosData(prev => prev.filter((_, i) => i !== idx));
     } else {
       setAdjuntosData(prev => prev.filter((_, i) => i !== idx));
     }
@@ -545,9 +542,9 @@ export default function App() {
       confirmCls: 'bg-red-600 hover:bg-red-700 text-white',
       icon: 'rotate-ccw',
       iconCls: 'bg-red-100',
-      onConfirm: () => {
-        localStorage.removeItem(LS_KEY);
-        localStorage.removeItem(LS_KEY_OIDS);
+      onConfirm: async () => {
+        await deleteDoc(LS_KEY);
+        await deleteDoc(LS_KEY_OIDS);
         location.reload();
       },
     });
@@ -571,6 +568,8 @@ export default function App() {
     }));
     setActividadesModalAreaIdx(null);
   }
+
+  if (dbLoading) return null;
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 text-gray-900 font-sans">

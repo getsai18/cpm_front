@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { getDoc, setDoc } from '../storage';
+import { db } from '../db';
 
 // ==========================================
 // DATOS INICIALES POR DEFECTO (MOCK DATA V5)
@@ -67,9 +69,14 @@ export default function CPManagerEmployee() {
   const [currentOrden, setCurrentOrden] = useState(null);
   const [incFilter, setIncFilter] = useState('enviadas'); 
 
-  // --- ESTADOS CON PERSISTENCIA LOCALSTORAGE ---
-  const [pedidos, setPedidos] = useState(() => JSON.parse(localStorage.getItem('cp_v5_pedidos')) || DEFAULT_PEDIDOS);
-  const [incidencias, setIncidencias] = useState(() => JSON.parse(localStorage.getItem('cp_v5_incidencias')) || DEFAULT_INCIDENCIAS);
+  // --- ESTADOS CON PERSISTENCIA POUCH ---
+  const [pedidos, setPedidos] = useState(DEFAULT_PEDIDOS);
+  const [incidencias, setIncidencias] = useState(DEFAULT_INCIDENCIAS);
+  const loadedRef = useRef(false);
+  const pedidosRef = useRef(pedidos);
+  const incidenciasRef = useRef(incidencias);
+  useEffect(() => { pedidosRef.current = pedidos; }, [pedidos]);
+  useEffect(() => { incidenciasRef.current = incidencias; }, [incidencias]);
 
   // --- ESTADOS DEL MODAL ---
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -83,21 +90,38 @@ export default function CPManagerEmployee() {
 
   // --- SINCRONIZACIÓN Y GUARDADO AUTOMÁTICO ---
   useEffect(() => {
-    localStorage.setItem('cp_v5_pedidos', JSON.stringify(pedidos));
+    Promise.all([
+      getDoc('cp_v5_pedidos', null),
+      getDoc('cp_v5_incidencias', null),
+    ]).then(([savedPedidos, savedIncidencias]) => {
+      loadedRef.current = true;
+      if (savedPedidos) setPedidos(savedPedidos);
+      if (savedIncidencias) setIncidencias(savedIncidencias);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (loadedRef.current) setDoc('cp_v5_pedidos', pedidos).catch(console.warn);
   }, [pedidos]);
 
   useEffect(() => {
-    localStorage.setItem('cp_v5_incidencias', JSON.stringify(incidencias));
+    if (loadedRef.current) setDoc('cp_v5_incidencias', incidencias).catch(console.warn);
   }, [incidencias]);
 
   // Escuchador en tiempo real para cambios externos (desde otros roles/pestañas)
   useEffect(() => {
-    const handleStorageChange = (e) => {
-      if (e.key === 'cp_v5_pedidos' && e.newValue) setPedidos(JSON.parse(e.newValue));
-      if (e.key === 'cp_v5_incidencias' && e.newValue) setIncidencias(JSON.parse(e.newValue));
-    };
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    const feed = db.changes({ live: true, since: 'now', include_docs: true })
+      .on('change', (change) => {
+        if (change.id === 'cp_v5_pedidos' && change.doc?.data) {
+          const incoming = JSON.stringify(change.doc.data);
+          if (incoming !== JSON.stringify(pedidosRef.current)) setPedidos(change.doc.data);
+        }
+        if (change.id === 'cp_v5_incidencias' && change.doc?.data) {
+          const incoming = JSON.stringify(change.doc.data);
+          if (incoming !== JSON.stringify(incidenciasRef.current)) setIncidencias(change.doc.data);
+        }
+      });
+    return () => feed.cancel();
   }, []);
 
   // Contadores dinámicos para los badges de la interfaz
@@ -108,10 +132,16 @@ export default function CPManagerEmployee() {
   useEffect(() => {
     if (currentPedido) {
       const pActualizado = pedidos.find(p => p.id === currentPedido.id);
+      if (!pActualizado) {
+        setCurrentPedido(null);
+        setCurrentOrden(null);
+        setCurrentView('pedidos');
+        return;
+      }
       setCurrentPedido(pActualizado);
       if (currentOrden) {
         const oActualizada = pActualizado.ordenes.find(o => o.id === currentOrden.id);
-        setCurrentOrden(oActualizada);
+        setCurrentOrden(oActualizada ?? null);
       }
     }
   }, [pedidos]);

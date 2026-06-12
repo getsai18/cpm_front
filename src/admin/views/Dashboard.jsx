@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { StatCard } from './StatCard'
 import { OrdersTable } from './OrdersTable'
 import { Clock, CheckCircle, PauseCircle, AlertTriangle } from 'lucide-react'
+import { getDoc } from '../../storage'
+import { db } from '../../db'
 
 function mapOrdenStatus(status) {
   if (!status) return 'pendiente'
@@ -12,10 +14,10 @@ function mapOrdenStatus(status) {
   return 'en-espera'
 }
 
-function buildDashboardData() {
+async function buildDashboardData() {
   try {
-    const clientes = JSON.parse(localStorage.getItem('cpmanager_clientes') || '[]')
-    const incidencias = JSON.parse(localStorage.getItem('cp_v5_incidencias') || '[]')
+    const clientes = await getDoc('cpmanager_clientes', [])
+    const incidencias = await getDoc('cp_v5_incidencias', [])
     const todasOrdenes = []
 
     clientes.forEach(c => {
@@ -52,12 +54,20 @@ function buildDashboardData() {
 }
 
 export function Dashboard() {
-  const [data, setData] = useState(() => buildDashboardData())
+  const [data, setData] = useState({ stats: { pendientes: 0, enProgreso: 0, enEspera: 0, incidencias: 0 }, orders: [] })
 
   useEffect(() => {
-    function reload() { setData(buildDashboardData()) }
-    window.addEventListener('storage', reload)
-    return () => window.removeEventListener('storage', reload)
+    buildDashboardData().then(setData)
+  }, [])
+
+  useEffect(() => {
+    const feed = db.changes({ live: true, since: 'now', include_docs: false })
+      .on('change', (change) => {
+        if (change.id === 'cpmanager_clientes' || change.id === 'cp_v5_incidencias') {
+          buildDashboardData().then(setData)
+        }
+      })
+    return () => feed.cancel()
   }, [])
 
   const getCurrentMonth = () => {

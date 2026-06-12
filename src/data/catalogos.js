@@ -1,3 +1,5 @@
+import { getDoc, setDoc } from '../storage';
+
 export const LS_KEY      = 'cpmanager_clientes';
 export const LS_KEY_OIDS = 'cpmanager_counters';
 
@@ -8,15 +10,25 @@ const _defaultPrendasCatalogo = [
   {nombre:'Maleta',icon:'🎒'},{nombre:'Jersey',icon:'🏈'},{nombre:'Calcetas',icon:'🧦'},
 ];
 
-function _getLivePrendas() {
+let _prendasCache = null;
+
+export function setPrendasCache(data) {
+  _prendasCache = data;
+}
+
+export async function initPrendasCache() {
   try {
-    const raw = localStorage.getItem('cp_prendas');
-    if (!raw) return null;
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) && arr.length > 0
-      ? arr.map(p => ({ nombre: p.nombre, icon: p.icono || p.icon || '📦' }))
-      : null;
-  } catch { return null; }
+    const data = await getDoc('cp_prendas', null);
+    if (data) _prendasCache = data;
+  } catch { /* ignore */ }
+}
+
+function _getLivePrendas() {
+  if (!_prendasCache) return null;
+  const arr = _prendasCache;
+  return Array.isArray(arr) && arr.length > 0
+    ? arr.map(p => ({ nombre: p.nombre, icon: p.icono || p.icon || '📦' }))
+    : null;
 }
 
 export const prendasCatalogo = new Proxy(_defaultPrendasCatalogo, {
@@ -133,24 +145,20 @@ export function getMockClientesInitial() {
   ];
 }
 
-export function guardarLS(clientes, counters) {
+export async function guardarDB(clientes, counters) {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(clientes));
-    localStorage.setItem(LS_KEY_OIDS, JSON.stringify(counters));
-  } catch(e) { console.warn('localStorage write failed', e); }
+    await setDoc(LS_KEY, clientes);
+    await setDoc(LS_KEY_OIDS, counters);
+  } catch(e) { console.warn('PouchDB write failed', e); }
 }
 
-export function cargarLS() {
+export async function cargarDB() {
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    const countersRaw = localStorage.getItem(LS_KEY_OIDS);
-    if (raw) {
-      const clientes = JSON.parse(raw);
-      const counters = countersRaw
-        ? JSON.parse(countersRaw)
-        : { ordenIdCounter: 10, pedidoIdCounter: 60 };
+    const clientes = await getDoc(LS_KEY, null);
+    if (clientes) {
+      const counters = await getDoc(LS_KEY_OIDS, { ordenIdCounter: 10, pedidoIdCounter: 60 });
       return { clientes, counters };
     }
     return null;
-  } catch(e) { console.warn('localStorage read failed', e); return null; }
+  } catch(e) { console.warn('PouchDB read failed', e); return null; }
 }

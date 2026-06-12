@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Plus, Pencil, Trash2, Search } from 'lucide-react'
 import { useForm } from 'react-hook-form'
+import { getDoc, setDoc } from '../../storage'
+import { setPrendasCache } from '../../data/catalogos'
 
 const ICONOS = [
   { id: 'superiores', emoji: 'https://img.icons8.com/?size=100&id=10506&format=png&color=000000', label: 'Prenda superior', desc: 'Playeras, polos, chamarras...' },
@@ -19,6 +21,7 @@ const iconoEmoji = {
 const iconoBg = { superiores: 'bg-gray-100', inferiores: 'bg-gray-100', accesorios: 'bg-gray-100', otros: 'bg-gray-50' }
 
 const ICONO_EMOJI = { superiores: '👕', inferiores: '🩳', accesorios: '🎒', otros: '📦' }
+const EMOJI_TO_ICONO = Object.fromEntries(Object.entries(ICONO_EMOJI).map(([k, v]) => [v, k]))
 const TALLAS_DEFAULT = { superiores: ['XS','S','M','L','XL','XXL'], inferiores: ['XS','S','M','L','XL'], accesorios: ['Única'], otros: ['Única'] }
 
 const initialPrendas = [
@@ -39,10 +42,30 @@ const initialPrendas = [
 
 export function TiposPrendas() {
   const [prendas, setPrendas] = useState(initialPrendas)
+  const loadedRef = useRef(false)
+
+  // Load persisted catalog on mount — do NOT overwrite before this completes
+  useEffect(() => {
+    getDoc('cp_prendas', null)
+      .then(saved => {
+        if (saved) {
+          const ui = saved.map(p => ({
+            id: typeof p.id === 'string' && p.id.startsWith('pt') ? Number(p.id.slice(2)) : (p.id ?? Date.now()),
+            nombre: p.nombre,
+            icono: EMOJI_TO_ICONO[p.icono] || 'otros',
+          }))
+          setPrendas(ui)
+        }
+      })
+      .catch(console.warn)
+      .finally(() => { loadedRef.current = true })
+  }, [])
 
   useEffect(() => {
+    if (!loadedRef.current) return
     const mapped = prendas.map(p => ({ id: 'pt' + p.id, nombre: p.nombre, icono: ICONO_EMOJI[p.icono], tallas: TALLAS_DEFAULT[p.icono] }))
-    localStorage.setItem('cp_prendas', JSON.stringify(mapped))
+    setPrendasCache(mapped)
+    setDoc('cp_prendas', mapped).catch(console.warn)
   }, [prendas])
 
   const [search, setSearch] = useState('')

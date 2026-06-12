@@ -107,10 +107,12 @@ function AreasForm({ areasActivas, onToggleArea, onQuitarActividad, onAbrirModal
                         onSelectTagOp={onSelectTagOp}
                         onToggleMulti={onToggleMulti}
                       />
-                      {act.alerta && (
-                        <div className="flex items-start gap-2 mt-2.5 p-2.5 rounded-lg bg-amber-50 border border-amber-200">
-                          <TriangleAlert className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-                          <div className="text-xs text-amber-800 leading-relaxed">{act.alerta}</div>
+                      {act.nota && (
+                        <div className="flex items-start gap-2 mt-2.5 p-2.5 rounded-lg bg-blue-50 border border-blue-200">
+                          <Info className="w-3.5 h-3.5 text-blue-600 flex-shrink-0 mt-0.5" />
+                          <div className="text-xs text-blue-800 leading-relaxed font-medium">
+                            {act.nota}
+                          </div>
                         </div>
                       )}
                     </div>

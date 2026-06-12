@@ -6,6 +6,7 @@ import { Areas } from './views/Areas'
 import { Actividades } from './views/Actividades'
 import { Clientes } from './views/Clientes'
 import { TiposPrendas } from './views/TiposPrendas'
+import {Incidencias} from './views/Incidencias'
 
 export function AdminApp({ onLogout, areas, setAreas, usuarios, setUsuarios }) {
   return (
@@ -20,6 +21,7 @@ export function AdminApp({ onLogout, areas, setAreas, usuarios, setUsuarios }) {
             <Route path="/actividades" element={<Actividades />} />
             <Route path="/clientes" element={<Clientes />} />
             <Route path="/tipos-prendas" element={<TiposPrendas />} />
+            <Route path="/incidencias" element={<Incidencias />} />
           </Routes>
         </main>
       </div>

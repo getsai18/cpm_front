@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Plus, Pencil, Trash2, Search, X, Circle, Square, AlignLeft, Tag, ChevronDown, Eye } from 'lucide-react'
 import { Pagination } from './Pagination'
+import { getDoc, setDoc } from '../../storage' // <-- Importamos los métodos de PouchDB
 
 const tipoConfig = {
   radio: { label: 'Varias opciones', color: 'bg-blue-100 text-blue-700' },
@@ -14,12 +15,13 @@ const tipoItems = [
   { value: 'texto', label: 'Respuesta corta' },
 ]
 
+// Usaremos esto como datos por defecto si la base de datos está vacía
 const initialActividades = [
-  { id: 1, nombre: 'Color de la prenda', tipo: 'radio', opciones: ['Azul marino', 'Rojo', 'Verde', 'Negro', 'Blanco'], etiquetas: ['color', 'uniforme'] },
-  { id: 2, nombre: 'Talla del jugador', tipo: 'radio', opciones: ['XS', 'S', 'M', 'L', 'XL', 'XXL'], etiquetas: ['talla', 'medidas'] },
-  { id: 3, nombre: 'Personalización adicional', tipo: 'checkbox', opciones: ['Número en espalda', 'Nombre del jugador', 'Escudo bordado', 'Patrocinador'], etiquetas: ['personalización'] },
-  { id: 4, nombre: 'Número del jugador', tipo: 'texto', opciones: [], etiquetas: ['número', 'personalización'] },
-  { id: 5, nombre: 'Material preferido', tipo: 'radio', opciones: ['Poliéster', 'Algodón', 'Dry-fit', 'Lycra'], etiquetas: ['material'] },
+  { id: 1, nombre: 'Color de la prenda', tipo: 'radio', opciones: ['Azul marino', 'Rojo', 'Verde', 'Negro', 'Blanco'], etiquetas: ['color', 'uniforme'], nota: '' },
+  { id: 2, nombre: 'Talla del jugador', tipo: 'radio', opciones: ['XS', 'S', 'M', 'L', 'XL', 'XXL'], etiquetas: ['talla', 'medidas'], nota: '' },
+  { id: 3, nombre: 'Personalización adicional', tipo: 'checkbox', opciones: ['Número en espalda', 'Nombre del jugador', 'Escudo bordado', 'Patrocinador'], etiquetas: ['personalización'], nota: 'El tiempo de fabricación se extiende 10–15 días hábiles. Coordina con el cliente.' },
+  { id: 4, nombre: 'Número del jugador', tipo: 'texto', opciones: [], etiquetas: ['número', 'personalización'], nota: '' },
+  { id: 5, nombre: 'Material preferido', tipo: 'radio', opciones: ['Poliéster', 'Algodón', 'Dry-fit', 'Lycra'], etiquetas: ['material'], nota: '' },
 ]
 
 const PAGE_SIZE = 5
@@ -30,6 +32,7 @@ function ActividadBuilder({ initial, onSave, onCancel, isEdit, isView }) {
   const [opciones, setOpciones] = useState(initial.opciones.length > 0 ? initial.opciones : ['Opción 1', 'Opción 2'])
   const [etiquetas, setEtiquetas] = useState(initial.etiquetas)
   const [etiquetaInput, setEtiquetaInput] = useState('')
+  const [nota, setNota] = useState(initial.nota || '') // <-- Nuevo estado exclusivo para la nota
   const [tipoOpen, setTipoOpen] = useState(false)
   const [nombreError, setNombreError] = useState(false)
   const dropdownRef = useRef(null)
@@ -64,7 +67,8 @@ function ActividadBuilder({ initial, onSave, onCancel, isEdit, isView }) {
   function handleSave() {
     if (isView) return
     if (!nombre.trim()) { setNombreError(true); return }
-    onSave({ nombre: nombre.trim(), tipo, opciones: tipo === 'texto' ? [] : opciones.filter(o => o.trim()), etiquetas })
+    // Incluimos la nota en el objeto que se guarda
+    onSave({ nombre: nombre.trim(), tipo, opciones: tipo === 'texto' ? [] : opciones.filter(o => o.trim()), etiquetas, nota: nota.trim() })
   }
 
   const TipoIcon = tipo === 'radio' ? Circle : tipo === 'checkbox' ? Square : AlignLeft
@@ -167,6 +171,30 @@ function ActividadBuilder({ initial, onSave, onCancel, isEdit, isView }) {
               </div>
             )}
           </div>
+
+          {/* NUEVA SECCIÓN DE NOTAS */}
+          <div className="border border-border rounded-xl p-5 bg-muted/10">
+            {!isView ? (
+              <div className="flex flex-col gap-2 mb-2">
+                <span className="text-sm font-semibold text-foreground">Nota / Aviso de la actividad (Opcional)</span>
+                <textarea 
+                  value={nota} 
+                  onChange={e => setNota(e.target.value)} 
+                  placeholder="Ej. El tiempo de fabricación se extiende 10–15 días hábiles..." 
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  rows={2}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 mb-2">
+                <span className="text-sm font-semibold text-foreground">Nota / Aviso de la actividad</span>
+                <p className="text-sm text-muted-foreground bg-input-background p-2 rounded-md border border-border">
+                  {nota || <span className="italic opacity-50">Sin nota configurada</span>}
+                </p>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground/60 italic mt-2">Esta nota será visible para el Gestor de Órdenes como un aviso al momento de configurar una nueva orden de producción.</p>
+          </div>
         </div>
 
         <div className="px-6 py-4 border-t border-border flex justify-end gap-3">
@@ -185,13 +213,35 @@ function ActividadBuilder({ initial, onSave, onCancel, isEdit, isView }) {
 }
 
 export function Actividades() {
-  const [actividades, setActividades] = useState(initialActividades)
+  const [actividades, setActividades] = useState([]) // Inicializa vacío para cargar la BD
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [builderOpen, setBuilderOpen] = useState(false)
   const [isViewMode, setIsViewMode] = useState(false)
   const [editTarget, setEditTarget] = useState(null)
   const [deleteModal, setDeleteModal] = useState(null)
+  
+  const loadedRef = useRef(false) // Referencia para saber si ya cargamos la BD
+
+  // 1. CARGA DESDE POUCHDB AL MONTAR
+  useEffect(() => {
+    getDoc('cp_v5_actividades', initialActividades)
+      .then(saved => {
+        if (saved && Array.isArray(saved)) {
+          setActividades(saved)
+        }
+      })
+      .catch(console.warn)
+      .finally(() => {
+        loadedRef.current = true
+      })
+  }, [])
+
+  // 2. GUARDADO AUTOMÁTICO EN POUCHDB CUANDO CAMBIAN LAS ACTIVIDADES
+  useEffect(() => {
+    if (!loadedRef.current) return
+    setDoc('cp_v5_actividades', actividades).catch(console.warn)
+  }, [actividades])
 
   const filtered = actividades.filter(a =>
     a.nombre.toLowerCase().includes(search.toLowerCase()) ||
@@ -270,7 +320,11 @@ export function Actividades() {
                 return (
                   <tr key={a.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 text-muted-foreground">{(page - 1) * PAGE_SIZE + idx + 1}</td>
-                    <td className="px-4 py-3">{a.nombre}</td>
+                    <td className="px-4 py-3">
+                      <div>{a.nombre}</div>
+                      {/* Un pequeño indicador si la actividad tiene nota */}
+                      {a.nota && <span className="text-[10px] text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-sm inline-block mt-1">Nota</span>}
+                    </td>
                     <td className="px-4 py-3"><span className={`inline-block px-2.5 py-0.5 rounded-full text-xs ${cfg.color}`}>{cfg.label}</span></td>
                     <td className="px-4 py-3 text-muted-foreground">{a.tipo === 'texto' ? <span className="italic text-xs">Libre</span> : `${a.opciones.length} opciones`}</td>
                     <td className="px-4 py-3">
@@ -300,7 +354,13 @@ export function Actividades() {
 
       {builderOpen && (
         <ActividadBuilder
-          initial={{ nombre: editTarget?.nombre ?? '', tipo: editTarget?.tipo ?? 'radio', opciones: editTarget?.opciones ?? [], etiquetas: editTarget?.etiquetas ?? [] }}
+          initial={{ 
+            nombre: editTarget?.nombre ?? '', 
+            tipo: editTarget?.tipo ?? 'radio', 
+            opciones: editTarget?.opciones ?? [], 
+            etiquetas: editTarget?.etiquetas ?? [],
+            nota: editTarget?.nota ?? '' // <-- Pasamos la nota al inicializador
+          }}
           isEdit={!!editTarget && !isViewMode}
           isView={isViewMode}
           onSave={handleSave}

@@ -1,4 +1,4 @@
-import { LayoutDashboard, Users, Building2, Activity, UserCircle, Shirt, LogOut } from 'lucide-react'
+import { LayoutDashboard, Users, Building2, Activity, UserCircle, Shirt, LogOut, FileText } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 export function Sidebar({ onLogout }) {
@@ -11,6 +11,7 @@ export function Sidebar({ onLogout }) {
     { id: 'actividades', label: 'Actividades', icon: Activity, path: '/actividades' },
     { id: 'clientes', label: 'Clientes', icon: UserCircle, path: '/clientes' },
     { id: 'tipos-prendas', label: 'Tipos de Prendas', icon: Shirt, path: '/tipos-prendas' },
+    { id: 'incidencias', label: 'Incidencias', icon: FileText, path: '/incidencias' },
   ]
 
   return (

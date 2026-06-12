@@ -554,16 +554,25 @@ export default function App() {
   function abrirModalActividades(areaIdx) {
     setActividadesModalAreaIdx(areaIdx);
   }
-  function confirmarAgregarActividades(areaIdx, selectedNames) {
+
+  function confirmarAgregarActividades(areaIdx, actividadesSeleccionadas) {
     setAreasActivas(prev => prev.map((a, i) => {
       if (i !== areaIdx) return a;
-      const nuevas = selectedNames
-        .map(nombre => {
-          const def = getCatalogoActividad(nombre);
-          if (!def || a.actividades.some(act => act.nombre === def.nombre)) return null;
-          return { ...JSON.parse(JSON.stringify(def)), selectedOptions: [] };
+    
+      // "actividadesSeleccionadas" ya contiene los objetos completos reales de PouchDB
+      const nuevas = actividadesSeleccionadas
+        .map(actividadReal => {
+          // Evitamos duplicados en la lista por si acaso
+          if (a.actividades.some(act => act.nombre === actividadReal.nombre)) return null;
+          
+          // Retornamos una copia limpia del objeto dinámico conservando sus propiedades (como .nota)
+          return { 
+            ...JSON.parse(JSON.stringify(actividadReal)), 
+            selectedOptions: [] 
+          };
         })
         .filter(Boolean);
+      
       return { ...a, actividades: [...a.actividades, ...nuevas] };
     }));
     setActividadesModalAreaIdx(null);
